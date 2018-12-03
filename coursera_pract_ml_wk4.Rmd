@@ -1,0 +1,110 @@
+---
+title: "coursera_ml_week4_submission"
+author: "Carson"
+date: "December 2, 2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+The goal of your project is to predict the manner in which they did the exercise. This is the "classe" variable in the training set. You may use any of the other variables to predict with. You should create a report describing how you built your model, how you used cross validation, what you think the expected out of sample error is, and why you made the choices you did. You will also use your prediction model to predict 20 different test cases.
+
+
+## Load necessary data from web
+```{r}
+library(caret); library(data.table); library(DataExplorer); library(ggplot2); library(dplyr); library(tidyr); library(naniar); library(readr)
+
+# Load training and test data
+csTrainingDf <- read.csv(url("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"), na.strings = '')
+csTestingDf <- read.csv(url("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"), na.strings = '')
+```
+
+
+## Explore Data
+```{r}
+# Identify fields with a high rate of missing values
+plot_missing(csTrainingDf)
+
+# Check to see how the balanced the data set is
+table(csTrainingDf$classe)
+```
+
+## Data Pre-processing
+Build new training/validation set with blank values replaced by NAs
+```{r}
+
+csTrainingDf <- csTrainingDf %>% replace_with_na_all(condition = ~.x == "NA")
+NAs2Train <- apply(csTrainingDf, 2, function(x){
+  sum(is.na(x))
+})
+csTrainingDf2 <- csTrainingDf[,which(NAs2Train == 0)]
+
+csTrainingDf2$classe <- as.factor(csTrainingDf2$classe)
+
+# Testing set
+csTestingDf <- csTestingDf %>% replace_with_na_all(condition = ~.x == "NA")
+NAs2Test <- apply(csTestingDf, 2, function(x){
+  sum(is.na(x))
+})
+csTestingDf2 <- csTestingDf[,which(NAs2Test == 0)]
+```
+
+## Build Model
+Use grid search to identify the appropriate hyper-parameters
+```{r}
+trainCont <- trainControl(method = "cv",
+                          number = 3,
+                          verboseIter = FALSE)
+
+csGbmGrid <- expand.grid(n.trees = seq(100, 300, 100),
+                         interaction.depth = c(5,10),
+                         shrinkage = 0.1,
+                         n.minobsinnode = c(5,10))
+
+# Train GBM model 
+csGbmFit <- train(y = csTrainingDf2$classe,
+                  method = "gbm",
+                  trControl = trainCont,
+                  x = setDT(csTrainingDf2)[,!"classe"],
+                  tuneGrid = csGbmGrid)
+```
+
+
+View model summary
+```{r}
+csGbmFit$finalModel
+```
+
+View relative influence for each factor
+```{r}
+relInfoCsGBM <- as.data.frame(summary(csGbmFit$finalModel))
+print(relInfoCsGBM)
+```
+
+
+Update training information based on optimal model from GBM grid search
+```{r}
+trainingCols <- c("X","raw_timestamp_part_2","gyros_dumbbell_y","amplitude_pitch_dumbbell","amplitude_roll_forearm","amplitude_pitch_arm","min_pitch_dumbbell",
+                  "avg_yaw_arm","min_yaw_arm","stddev_roll_belt","gyros_belt_x","min_pitch_arm","magnet_arm_y","num_window")
+
+csGbmGrid2 <- expand.grid(n.trees = 200,
+                         interaction.depth = 5,
+                         shrinkage = 0.1,
+                         n.minobsinnode = 10)
+
+csGbmFit2 <- train(y = csTrainingDf2$classe,
+                  method = "gbm",
+                  trControl = trainCont,
+                  x = setDT(csTrainingDf2)[, ..trainingCols],
+                  tuneGrid = csGbmGrid2)
+```
+
+## Model Predictions
+```{r}
+csPredictions <- predict(csGbmFit2, newdata = csTestingDf2)
+```
+
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
